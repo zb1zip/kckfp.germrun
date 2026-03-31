@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>Germ Run</title>
+<style>
+  body {
+    margin: 0; padding: 0;
+    font-family: sans-serif;
+    background: #cce7ff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+  #gameContainer {
+    width: 600px;
+    user-select: none;
+    position: relative;
+  }
+  #topButtons {
+    text-align: center;
+    margin-bottom: 20px; /* 캔버스 위로 넉넉하게 */
+  }
+  #topButtons button {
+    padding: 6px 12px;
+    font-size: 14px;
+    margin: 0 5px;
+    cursor: pointer;
+  }
+  canvas {
+    display: block;
+    background: #cce7ff;
+    width: 600px;
+    height: 300px;
+    position: relative;
+    border-radius: 8px;
+  }
+  /* 화면 패널 공통 */
+  #startScreen, #gameOver, #ending {
+    position: absolute;
+    top: 70px;  /* 버튼 아래로 위치 */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 300px;
+    background: rgba(204, 231, 255, 0.9);
+    border-radius: 8px;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+    padding: 20px 20px 80px 20px; /* 버튼 영역과 겹치지 않도록 충분히 아래 여백 */
+    box-sizing: border-box;
+  }
+  #startScreen h1, #gameOver h1, #ending h1 {
+    margin: 0 0 20px;
+    font-size: 2.2em;
+  }
+  button.screen-btn {
+    padding: 10px 20px;
+    font-size: 16px;
+    margin: 5px;
+    cursor: pointer;
+  }
+  #ending p {
+    margin-top: 10px;
+  }
+  #ending img {
+    margin-top: 40px; /* QR 코드 아래로 */
+    width: 150px;
+    height: 150px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="gameContainer">
+  <div id="topButtons">
+    <button onclick="changeLanguage('ko')">🇰🇷</button>
+    <button onclick="changeLanguage('en')">🇺🇸</button>
+    <button onclick="toggleMusic()" id="musicBtn">🔊</button>
+  </div>
+
+  <canvas id="gameCanvas" width="600" height="300"></canvas>
+
+  <div id="startScreen">
+    <h1 id="title"></h1>
+    <button id="startBtn" class="screen-btn" onclick="startGameClick()"></button>
+  </div>
+
+  <div id="gameOver">
+    <h1 id="failText"></h1>
+    <button id="retryBtn" class="screen-btn" onclick="restartGame()"></button>
+    <button id="quitBtn" class="screen-btn" onclick="goStart()"></button>
+  </div>
+
+  <div id="ending">
+    <h1 id="successText"></h1>
+    <p id="qrText" style="display:none;"></p>
+    <img id="qrImg" src="qrcode.png" alt="QR 코드" />
+    <button id="moveBtn" class="screen-btn" onclick="goSite()" style="display:none;"></button>
+    <button class="screen-btn" onclick="goStart()">HOME</button>
+  </div>
+</div>
+
+<audio id="bgm" loop>
+  <source src="moodmode-no-copyright-music-201745.mp3" type="audio/mpeg" />
+</audio>
+
+<script>
+// 🌐 다국어 텍스트
+const texts = {
+  ko: {
+    title: "🦠 세균 달리기",
+    start: "게임 시작",
+    fail: "실패!",
+    retry: "다시 도전",
+    quit: "그만하기",
+    success: "성공!",
+    move: "사이트 이동",
+    qr: "QR을 스캔하거나 버튼을 누르세요"
+  },
+  en: {
+    title: "🦠 Germ Run",
+    start: "Start Game",
+    fail: "Failed!",
+    retry: "Retry",
+    quit: "Quit",
+    success: "Success!",
+    move: "Go to Site",
+    qr: "Scan QR or press button"
+  }
+};
+
+let currentLang = "ko";
+let gameState = "start";
+let isMusicPlaying = false;
+
+// 캔버스 & 컨텍스트
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// 이미지 로드
+let bgImg = new Image(); bgImg.src = "sky.png";
+let playerImg = new Image(); playerImg.src = "germ.png";
+let obsImg = new Image(); obsImg.src = "pill.png";
+let skyImg = new Image(); skyImg.src = "sky.png";
+let eyeOpen = new Image(); eyeOpen.src = "eye-open.png";
+let eyeClosed = new Image(); eyeClosed.src = "eye-close.png";
+
+// 플레이어 초기 상태
+let player = { x: 50, y: 240, w: 40, h: 40, vy: 0, jumping: false };
+
+// 장애물 배열
+let obstacles = [];
+
+// 배경 위치
+let bgX = 0;
+
+// 점수 및 거리
+let distance = 0;
+
+// 난이도 설정
+const targetDistance = 800;
+const obstacleRate = 0.01;
+const speed = 4;
+
+// 텍스트 업데이트 함수
+function updateText() {
+  document.getElementById("title").innerText = texts[currentLang].title;
+  document.getElementById("startBtn").innerText = texts[currentLang].start;
+  document.getElementById("failText").innerText = texts[currentLang].fail;
+  document.getElementById("retryBtn").innerText = texts[currentLang].retry;
+  document.getElementById("quitBtn").innerText = texts[currentLang].quit;
+  document.getElementById("successText").innerText = texts[currentLang].success;
+  document.getElementById("moveBtn").innerText = texts[currentLang].move;
+  document.getElementById("qrText").innerText = texts[currentLang].qr;
+}
+
+// 언어 변경 함수
+function changeLanguage(lang) {
+  currentLang = lang;
+  localStorage.setItem("lang", lang);
+  updateText();
+}
+
+// 게임 시작 버튼 클릭
+function startGameClick() {
+  startGame();
+  let bgm = document.getElementById("bgm");
+  bgm.play().then(() => {
+    isMusicPlaying = true;
+    document.getElementById("musicBtn").innerText = "🔊";
+  }).catch(e => console.log("자동재생 막힘", e));
+}
+
+// 게임 초기화 및 시작
+function startGame() {
+  resetGame();
+  gameState = "playing";
+  document.getElementById("startScreen").style.display = "none";
+  document.getElementById("gameOver").style.display = "none";
+  document.getElementById("ending").style.display = "none";
+  gameLoop();
+}
+
+function resetGame() {
+  player.y = 240;
+  player.vy = 0;
+  player.jumping = false;
+  obstacles = [];
+  distance = 0;
+  bgX = 0;
+  document.getElementById("qrImg").style.display = "none";
+  document.getElementById("moveBtn").style.display = "none";
+  document.getElementById("qrText").style.display = "none";
+}
+
+// 점프 처리
+function jump() {
+  if (!player.jumping && gameState === "playing") {
+    player.vy = -10;
+    player.jumping = true;
+  }
+}
+document.addEventListener("keydown", e => { if (e.code === "Space") jump(); });
+document.addEventListener("touchstart", jump);
+
+// 게임 루프
+function gameLoop() {
+  if (gameState !== "playing") return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 배경 스크롤
+  bgX -= speed / 2;
+  if (bgX < -canvas.width) bgX = 0;
+  ctx.drawImage(bgImg, bgX, 0, canvas.width, canvas.height);
+  ctx.drawImage(bgImg, bgX + canvas.width, 0, canvas.width, canvas.height);
+
+  // 땅
+  ctx.fillStyle = "#7cfc00";
+  ctx.fillRect(0, 280, canvas.width, 20);
+
+  // 플레이어
+  player.vy += 0.5;
+  player.y += player.vy;
+  if (player.y >= 240) {
+    player.y = 240;
+    player.jumping = false;
+  }
+  ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+
+  // 장애물
+  if (Math.random() < obstacleRate) {
+    let last = obstacles[obstacles.length - 1];
+    if (!last || (last.x < canvas.width - 150)) obstacles.push({ x: canvas.width, y: 240, w: 40, h: 40 });
+  }
+  for (let o of obstacles) {
+    o.x -= speed;
+    ctx.drawImage(obsImg, o.x, o.y, o.w, o.h);
+    if (player.x < o.x + o.w && player.x + player.w > o.x &&
+      player.y < o.y + o.h && player.y + player.h > o.y) {
+      gameOver();
+      return;
+    }
+  }
+
+  distance++;
+  if (distance > targetDistance) {
+    clearGame();
+    return;
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// 게임 오버
+function gameOver() {
+  gameState = "gameover";
+  document.getElementById("gameOver").style.display = "flex";
+}
+
+// 게임 재시작
+function restartGame() {
+  resetGame();
+  gameState = "playing";
+  document.getElementById("gameOver").style.display = "none";
+  gameLoop();
+}
+
+// 홈 화면
+function goStart() {
+  gameState = "start";
+  document.getElementById("gameOver").style.display = "none";
+  document.getElementById("ending").style.display = "none";
+  document.getElementById("startScreen").style.display = "flex";
+}
+
+// 사이트 이동
+function goSite() {
+  window.location.href = "https://youtu.be/3yt19MnUc3I?si=je78rp7qxTwGLvt5";
+}
+
+// 음악 토글
+function toggleMusic() {
+  let bgm = document.getElementById("bgm");
+  let btn = document.getElementById("musicBtn");
+  if (isMusicPlaying) {
+    bgm.pause();
+    btn.innerText = "🔇";
+    isMusicPlaying = false;
+  } else {
+    bgm.play();
+    btn.innerText = "🔊";
+    isMusicPlaying = true;
+  }
+}
+
+// 엔딩 (깜빡임 제거, 바로 QR 표시)
+function clearGame() {
+  gameState = "clear";
+  document.getElementById("ending").style.display = "flex";
+
+  // 바로 텍스트, QR, 버튼 보이게 설정
+  document.getElementById("successText").innerText = texts[currentLang].success;
+  document.getElementById("qrText").style.display = "block";
+  document.getElementById("qrImg").style.display = "inline-block";
+  document.getElementById("moveBtn").style.display = "inline-block";
+  document.getElementById("moveBtn").innerText = texts[currentLang].move;
+}
+
+// 페이지 로드
+window.onload = function() {
+  const savedLang = localStorage.getItem("lang");
+  if(savedLang) currentLang = savedLang;
+  updateText();
+  document.getElementById("startScreen").style.display = "flex";
+  document.getElementById("gameOver").style.display = "none";
+  document.getElementById("ending").style.display = "none";
+};
+</script>
+
+</body>
+</html>
