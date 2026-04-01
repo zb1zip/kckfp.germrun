@@ -46,6 +46,8 @@ button.screen-btn { padding:10px 20px; margin-top:10px; cursor:pointer; }
   <h1 id="failText"></h1>
   <button onclick="restartGame()" class="screen-btn" id="retryBtn"></button>
   <button onclick="goStart()" class="screen-btn" id="quitBtn"></button>
+  <!-- 추가: 엔딩 보기 버튼 -->
+  <button onclick="showEnding()" class="screen-btn" id="endingBtn">엔딩 보기</button>
 </div>
 
 <div id="ending">
@@ -70,9 +72,9 @@ const texts = {
 };
 
 let currentLang="ko", gameState="start", isMusicPlaying=false;
-let distance=0, targetDistance=1; // 목표 1m
+let distance=0, targetDistance=550;
 
-// 단일 난이도 설정
+// 게임 설정
 const gameSettings = { speed:4, jump:-18, gravity:0.9 };
 
 // 캔버스
@@ -93,6 +95,8 @@ function getGroundY(){ return canvas.height-80; }
 // 장애물
 let obstacles = [];
 let lastObstacleX = 0;
+const minGap = 500;
+const maxGap = 800;
 
 // Kick 효과
 let kickEffect = null;
@@ -115,7 +119,7 @@ function gameLoop(timestamp){
   if(gameState!=="playing") return;
 
   if(!lastTime) lastTime = timestamp;
-  let delta = (timestamp - lastTime)/800; // 프레임 간격(초)
+  let delta = (timestamp - lastTime)/800;
   lastTime = timestamp;
 
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -125,7 +129,7 @@ function gameLoop(timestamp){
   ctx.fillRect(0,canvas.height-20,canvas.width,20);
 
   // 플레이어
-  player.vy += gameSettings.gravity; // 중력
+  player.vy += gameSettings.gravity;
   player.y += player.vy;
   if(player.y >= getGroundY()){ player.y = getGroundY(); player.jumping = false; player.vy=0; }
   ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
@@ -146,7 +150,7 @@ function gameLoop(timestamp){
   }
 
   // 장애물 생성
-  if(lastObstacleX < canvas.width - 400){
+  if(lastObstacleX < canvas.width - Math.floor(Math.random()*(maxGap-minGap)+minGap)){
     obstacles.push({x: canvas.width, y:getGroundY(), w:50, h:50});
     lastObstacleX = canvas.width;
   }
@@ -167,7 +171,7 @@ function gameLoop(timestamp){
     if(o.x + o.w < 0) obstacles.splice(i,1);
   }
 
-  // 거리 증가 (게임 단위 미터, 실제 시간 기준)
+  // 거리 증가
   distance += gameSettings.speed * delta; 
 
   if(distance >= targetDistance){ showEnding(); return; }
@@ -183,11 +187,27 @@ function startGameFromTutorial(){
   const bgm = document.getElementById("bgm");
   bgm.play().then(()=>{ isMusicPlaying=true; document.getElementById("musicBtn").innerText="🔊"; }).catch(e=>console.log("BGM 재생 실패:", e));
 }
-function startGame(){ player.y=getGroundY(); player.vy=0; obstacles=[]; distance=0; lastTime=0; lastObstacleX=0; gameState="playing"; requestAnimationFrame(gameLoop); }
-function gameOver(){ gameState="gameover"; document.getElementById("gameOver").style.display="flex"; }
-function restartGame(){ document.getElementById("gameOver").style.display="none"; startGame(); }
-function goStart(){ gameState="start"; document.getElementById("gameOver").style.display="none"; document.getElementById("ending").style.display="none"; document.getElementById("startScreen").style.display="flex"; }
-function showEnding(){ gameState="ended"; document.getElementById("ending").style.display="flex"; }
+function startGame(){ 
+  player.y=getGroundY(); player.vy=0; obstacles=[]; distance=0; lastTime=0; lastObstacleX=0; 
+  gameState="playing"; 
+  document.getElementById("gameOver").style.display="none"; 
+  requestAnimationFrame(gameLoop); 
+}
+function gameOver(){ 
+  gameState="gameover"; 
+  document.getElementById("gameOver").style.display="flex"; 
+}
+function goStart(){ 
+  gameState="start"; 
+  document.getElementById("gameOver").style.display="none"; 
+  document.getElementById("ending").style.display="none"; 
+  document.getElementById("startScreen").style.display="flex"; 
+}
+function showEnding(){ 
+  gameState="ended"; 
+  document.getElementById("gameOver").style.display="none"; 
+  document.getElementById("ending").style.display="flex"; 
+}
 
 // 음악
 function toggleMusic(){ const bgm=document.getElementById("bgm"); const btn=document.getElementById("musicBtn"); if(isMusicPlaying){ bgm.pause(); btn.innerText="🔇"; isMusicPlaying=false; } else{ bgm.play().then(()=>{ isMusicPlaying=true; btn.innerText="🔊"; }).catch(e=>console.log("재생 실패", e)); } }
