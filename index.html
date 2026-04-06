@@ -46,8 +46,7 @@ button.screen-btn { padding:10px 20px; margin-top:10px; cursor:pointer; }
   <h1 id="failText"></h1>
   <button onclick="restartGame()" class="screen-btn" id="retryBtn"></button>
   <button onclick="goStart()" class="screen-btn" id="quitBtn"></button>
-  <!-- 추가: 엔딩 보기 버튼 -->
-  <button onclick="showEnding()" class="screen-btn" id="endingBtn">엔딩 보기</button>
+  <button onclick="showEnding()" class="screen-btn" id="forceEndingBtn" style="display:none;">엔딩 보기</button>
 </div>
 
 <div id="ending">
@@ -55,7 +54,7 @@ button.screen-btn { padding:10px 20px; margin-top:10px; cursor:pointer; }
   <img src="qrcode.png" alt="QR Code">
   <div>
     <button onclick="goStart()">HOME</button>
-    <button onclick="window.location.href='https://youtu.be/stfOGdsgZUU?si=2Y2f6_WT_80vSTGl'">사이트 이동</button>
+    <button onclick="window.location.href='https://youtu.be/i5S7DBQnqP0?si=uVqEzJb4tA-EdyaP'">사이트 이동</button>
   </div>
 </div>
 </div>
@@ -65,44 +64,41 @@ button.screen-btn { padding:10px 20px; margin-top:10px; cursor:pointer; }
 </audio>
 
 <script>
-// 다국어 텍스트
 const texts = {
   ko:{title:"🦠 세균 달리기",start:"게임 시작",tutorial:"스페이스바 또는 화면 터치로 점프!",fail:"실패!",retry:"다시 도전",quit:"그만하기",success:"성공!"},
   en:{title:"🦠 Germ Run",start:"Start Game",tutorial:"Press SPACE or tap to jump!",fail:"Failed!",retry:"Retry",quit:"Quit",success:"Success!"}
 };
 
 let currentLang="ko", gameState="start", isMusicPlaying=false;
-let distance=0, targetDistance=550;
+let successCount=0, failCount=0;
+const targetSuccess=5;
 
-// 게임 설정
 const gameSettings = { speed:4, jump:-18, gravity:0.9 };
 
-// 캔버스
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
+
 function resizeCanvas(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-// 이미지
+// 이미지 로드
 let playerImg = new Image(); playerImg.src = "germ.png";
 let obsImg = new Image(); obsImg.src = "pill.png";
 
-// 플레이어
+let imagesLoaded = 0;
+[playerImg, obsImg].forEach(img=>{
+  img.onload = ()=>{ imagesLoaded++; if(imagesLoaded===2){ document.getElementById("startScreen").style.display="flex"; } };
+});
+
 let player = {x:50, y:0, w:50, h:50, vy:0, jumping:false};
 function getGroundY(){ return canvas.height-80; }
 
-// 장애물
 let obstacles = [];
-let lastObstacleX = 0;
-const minGap = 500;
-const maxGap = 800;
+const minGap = 500, maxGap = 800;
+let kickEffect = null, kickDuration = 120;
+let lastTime = null;
 
-// Kick 효과
-let kickEffect = null;
-const kickDuration = 120;
-
-// 점프
 function jump(){
   if(!player.jumping && gameState==="playing"){
     player.vy = gameSettings.jump;
@@ -110,39 +106,33 @@ function jump(){
     kickEffect = {x:player.x, y:player.y, timer: kickDuration};
   }
 }
-document.addEventListener("keydown", e=>{if(e.code==="Space") jump();});
-document.addEventListener("touchstart", jump);
 
-// 게임 루프
-let lastTime = 0;
+document.addEventListener("keydown", e=>{ if(e.code==="Space") jump(); });
+canvas.addEventListener("touchstart", e=>{ e.preventDefault(); jump(); }, { passive:false });
+
 function gameLoop(timestamp){
   if(gameState!=="playing") return;
-
-  if(!lastTime) lastTime = timestamp;
-  let delta = (timestamp - lastTime)/800;
+  if(!lastTime) lastTime=timestamp;
   lastTime = timestamp;
 
   ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#7cfc00"; ctx.fillRect(0,canvas.height-20,canvas.width,20);
 
-  // 땅
-  ctx.fillStyle="#7cfc00";
-  ctx.fillRect(0,canvas.height-20,canvas.width,20);
-
-  // 플레이어
+  // 플레이어 물리
   player.vy += gameSettings.gravity;
   player.y += player.vy;
-  if(player.y >= getGroundY()){ player.y = getGroundY(); player.jumping = false; player.vy=0; }
+  if(player.y>=getGroundY()){ player.y=getGroundY(); player.jumping=false; player.vy=0; }
+
   ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
 
-  // Kick 애니메이션
+  // Kick 효과
   if(kickEffect){
-    let progress = 1 - (kickEffect.timer / kickDuration);
+    let progress = 1 - (kickEffect.timer/kickDuration);
     let alpha = 1 - progress;
-    let floatY = progress * 50;
+    let floatY = progress*50;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = "red";
-    ctx.font = "bold 30px Arial";
+    ctx.fillStyle = "red"; ctx.font="bold 30px Arial";
     ctx.fillText("Kick!", kickEffect.x, kickEffect.y-floatY);
     ctx.restore();
     kickEffect.timer--;
@@ -150,84 +140,72 @@ function gameLoop(timestamp){
   }
 
   // 장애물 생성
-  if(lastObstacleX < canvas.width - Math.floor(Math.random()*(maxGap-minGap)+minGap)){
-    obstacles.push({x: canvas.width, y:getGroundY(), w:50, h:50});
-    lastObstacleX = canvas.width;
+  const gap = Math.random()*(maxGap-minGap)+minGap;
+  if(obstacles.length===0 || obstacles[obstacles.length-1].x < canvas.width-gap){
+    obstacles.push({x:canvas.width, y:getGroundY(), w:50, h:50, passed:false});
   }
-  lastObstacleX -= gameSettings.speed;
 
-  // 장애물 이동 및 충돌
   for(let i=obstacles.length-1;i>=0;i--){
     let o = obstacles[i];
     o.x -= gameSettings.speed;
-    ctx.drawImage(obsImg, o.x, o.y, o.w, o.h);
+    ctx.drawImage(obsImg,o.x,o.y,o.w,o.h);
 
-    if(player.x < o.x + o.w && player.x + player.w > o.x &&
-       player.y < o.y + o.h && player.y + player.h > o.y){
-         gameOver();
-         return;
+    const pad = 10;
+    if(player.x+pad < o.x+o.w && player.x+player.w-pad > o.x && player.y+pad < o.y+o.h && player.y+player.h-pad > o.y){
+      gameOver(); return;
     }
 
-    if(o.x + o.w < 0) obstacles.splice(i,1);
+    if(!o.passed && o.x+o.w < player.x){ 
+      o.passed=true; successCount++; 
+      if(successCount>=targetSuccess){ showEnding(); return; } 
+    }
+    if(o.x+o.w < 0) obstacles.splice(i,1);
   }
-
-  // 거리 증가
-  distance += gameSettings.speed * delta; 
-
-  if(distance >= targetDistance){ showEnding(); return; }
 
   requestAnimationFrame(gameLoop);
 }
 
-// 상태 관리
 function showTutorial(){ document.getElementById("startScreen").style.display="none"; document.getElementById("tutorialScreen").style.display="flex"; }
-function startGameFromTutorial(){
-  document.getElementById("tutorialScreen").style.display="none";
-  startGame();
-  const bgm = document.getElementById("bgm");
-  bgm.play().then(()=>{ isMusicPlaying=true; document.getElementById("musicBtn").innerText="🔊"; }).catch(e=>console.log("BGM 재생 실패:", e));
-}
+function startGameFromTutorial(){ document.getElementById("tutorialScreen").style.display="none"; startGame(); toggleMusic(); }
 function startGame(){ 
-  player.y=getGroundY(); player.vy=0; obstacles=[]; distance=0; lastTime=0; lastObstacleX=0; 
-  gameState="playing"; 
+  player.y=getGroundY(); player.vy=0; obstacles=[]; successCount=0; lastTime=null; gameState="playing"; 
   document.getElementById("gameOver").style.display="none"; 
-  requestAnimationFrame(gameLoop); 
+  requestAnimationFrame(gameLoop);
 }
+
+function restartGame(){ document.getElementById("gameOver").style.display="none"; startGame(); }
 function gameOver(){ 
   gameState="gameover"; 
+  failCount++; 
+  const forceBtn=document.getElementById("forceEndingBtn"); 
+  if(failCount>=3) forceBtn.style.display="block"; 
   document.getElementById("gameOver").style.display="flex"; 
 }
-function goStart(){ 
-  gameState="start"; 
-  document.getElementById("gameOver").style.display="none"; 
-  document.getElementById("ending").style.display="none"; 
-  document.getElementById("startScreen").style.display="flex"; 
-}
-function showEnding(){ 
-  gameState="ended"; 
-  document.getElementById("gameOver").style.display="none"; 
-  document.getElementById("ending").style.display="flex"; 
+function goStart(){ gameState="start"; document.getElementById("gameOver").style.display="none"; document.getElementById("ending").style.display="none"; document.getElementById("startScreen").style.display="flex"; }
+function showEnding(){ gameState="ended"; document.getElementById("gameOver").style.display="none"; document.getElementById("ending").style.display="flex"; }
+
+function toggleMusic(){
+  const bgm=document.getElementById("bgm");
+  const btn=document.getElementById("musicBtn");
+  if(isMusicPlaying){ bgm.pause(); btn.innerText="🔇"; isMusicPlaying=false; } 
+  else{ bgm.play().catch(()=>{}); btn.innerText="🔊"; isMusicPlaying=true; }
 }
 
-// 음악
-function toggleMusic(){ const bgm=document.getElementById("bgm"); const btn=document.getElementById("musicBtn"); if(isMusicPlaying){ bgm.pause(); btn.innerText="🔇"; isMusicPlaying=false; } else{ bgm.play().then(()=>{ isMusicPlaying=true; btn.innerText="🔊"; }).catch(e=>console.log("재생 실패", e)); } }
-
-// 제작자
-function showCreator(){ alert(currentLang==="ko"?"제작자: text-00":"Created by: text-00"); }
-
-// 텍스트
+function showCreator(){ alert(currentLang==="ko"?"제작자: @modu-test00":"Created by: @modu_test00"); }
 function updateText(){
-  document.getElementById("title").innerText = texts[currentLang].title;
-  document.getElementById("startBtn").innerText = texts[currentLang].start;
-  document.getElementById("tutorialText").innerText = texts[currentLang].tutorial;
-  document.getElementById("failText").innerText = texts[currentLang].fail;
-  document.getElementById("retryBtn").innerText = texts[currentLang].retry;
-  document.getElementById("quitBtn").innerText = texts[currentLang].quit;
-  document.getElementById("successText").innerText = texts[currentLang].success;
+  document.getElementById("title").innerText=texts[currentLang].title;
+  document.getElementById("startBtn").innerText=texts[currentLang].start;
+  document.getElementById("tutorialText").innerText=texts[currentLang].tutorial;
+  document.getElementById("failText").innerText=texts[currentLang].fail;
+  document.getElementById("retryBtn").innerText=texts[currentLang].retry;
+  document.getElementById("quitBtn").innerText=texts[currentLang].quit;
+  document.getElementById("successText").innerText=texts[currentLang].success;
 }
 function changeLanguage(lang){ currentLang=lang; updateText(); }
 
-window.onload = () => { updateText(); resizeCanvas(); document.getElementById("startScreen").style.display="flex"; };
+window.onload = () => {
+  updateText();
+};
 </script>
 
 </body>
